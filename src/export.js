@@ -13,7 +13,7 @@ const OUTPUT_DIR = process.argv[3] || join(__dirname, '../output');
 console.log(`Exporting traits at ${SIZE}x${SIZE} to ${OUTPUT_DIR}`);
 
 // Load image data
-const imageDataPath = join(__dirname, '../data/image-data.json');
+const imageDataPath = join(__dirname, '../data/nouns_br_traits.json');
 const imageData = JSON.parse(readFileSync(imageDataPath, 'utf-8'));
 
 const { palette, images, bgcolors } = imageData;
