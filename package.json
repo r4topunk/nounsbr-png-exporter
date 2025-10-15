@@ -23,7 +23,8 @@
   "main": "src/export.js",
   "scripts": {
     "export": "node src/export.js",
-    "start": "node src/export.js"
+    "start": "node src/export.js",
+    "generate": "node src/generate-nfts.js"
   },
   "dependencies": {
     "sharp": "^0.33.0"
