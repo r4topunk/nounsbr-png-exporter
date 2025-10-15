@@ -1,0 +1,35 @@
+{
+  "name": "nounsbr-png-exporter",
+  "version": "1.0.0",
+  "description": "Standalone PNG exporter for NounsBR assets - converts RLE-encoded trait data to high-quality PNGs",
+  "author": "NoundersBR",
+  "license": "GPL-3.0",
+  "homepage": "https://github.com/nounsbr/nounsbr-png-exporter",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nounsbr/nounsbr-png-exporter.git"
+  },
+  "keywords": [
+    "nounsbr",
+    "nouns",
+    "nft",
+    "png",
+    "image",
+    "export",
+    "trait",
+    "pixel-art"
+  ],
+  "type": "module",
+  "main": "src/export.js",
+  "scripts": {
+    "export": "node src/export.js",
+    "start": "node src/export.js"
+  },
+  "dependencies": {
+    "sharp": "^0.33.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
+
