@@ -1,20 +1,28 @@
 import { readdirSync, mkdirSync, writeFileSync } from 'fs';
-import { join, dirname } from 'path';
+import { join, dirname, basename } from 'path';
 import { fileURLToPath } from 'url';
 import sharp from 'sharp';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-// Get the number of NFTs to generate from command line args
-const COUNT = process.argv[2] ? parseInt(process.argv[2]) : 10;
+// Optional limit for how many NFTs to generate from command line args
+const rawLimit = process.argv[2] ? parseInt(process.argv[2], 10) : undefined;
+const LIMIT = Number.isInteger(rawLimit) && rawLimit > 0 ? rawLimit : undefined;
 const INPUT_DIR = process.argv[3] || join(__dirname, '../output');
 const OUTPUT_DIR = process.argv[4] || join(__dirname, '../nfts');
-const SIZE = process.argv[5] ? parseInt(process.argv[5]) : 2000;
+const SIZE = process.argv[5] ? parseInt(process.argv[5], 10) : 2000;
 
 console.log(`\n🎨 NounsBR NFT Generator`);
-console.log(`Generating ${COUNT} random NFTs at ${SIZE}x${SIZE}`);
+console.log(`Generating NFTs deterministically at ${SIZE}x${SIZE}`);
 console.log(`Input: ${INPUT_DIR}`);
-console.log(`Output: ${OUTPUT_DIR}\n`);
+console.log(`Output: ${OUTPUT_DIR}`);
+if (Number.isInteger(LIMIT)) {
+  console.log(`Limiting to ${LIMIT} combinations\n`);
+} else if (rawLimit !== undefined) {
+  console.log(`Invalid limit provided ("${process.argv[2]}"); exporting all possible combinations\n`);
+} else {
+  console.log(`Exporting all possible combinations\n`);
+}
 
 // Ensure output directory exists
 mkdirSync(OUTPUT_DIR, { recursive: true });
@@ -30,57 +38,13 @@ function getTraitsFromFolder(folderName) {
   try {
     const files = readdirSync(folderPath)
       .filter(file => file.endsWith('.png'))
+      .sort((a, b) => a.localeCompare(b))
       .map(file => join(folderPath, file));
     return files;
   } catch (err) {
     console.error(`❌ Error reading ${folderName}: ${err.message}`);
     return [];
   }
-}
-
-/**
- * Get a random item from an array
- */
-function getRandomItem(array) {
-  return array[Math.floor(Math.random() * array.length)];
-}
-
-/**
- * Generate metadata for an NFT
- */
-function generateMetadata(tokenId, traits) {
-  const getName = (path) => {
-    const filename = path.split('/').pop();
-    return filename.replace('.png', '').replace(/^(bg-|body-|accessory-|head-|glasses-)/, '');
-  };
-
-  return {
-    name: `NounsBR #${tokenId}`,
-    description: 'A unique NounsBR NFT',
-    image: `${tokenId}.png`,
-    attributes: [
-      {
-        trait_type: 'background',
-        value: getName(traits.backgrounds)
-      },
-      {
-        trait_type: 'body',
-        value: getName(traits.bodies)
-      },
-      {
-        trait_type: 'accessory',
-        value: getName(traits.accessories)
-      },
-      {
-        trait_type: 'head',
-        value: getName(traits.heads)
-      },
-      {
-        trait_type: 'glasses',
-        value: getName(traits.glasses)
-      }
-    ]
-  };
 }
 
 /**
@@ -105,24 +69,24 @@ function loadAllTraits() {
  * Composite layers to create final NFT image
  */
 async function compositeNFT(selectedTraits, outputPath) {
-  // Start with the background
-  let image = sharp(selectedTraits.backgrounds)
-    .resize(SIZE, SIZE, { kernel: sharp.kernel.nearest, fit: 'fill' });
+  const backgroundBuffer = await sharp(selectedTraits.backgrounds)
+    .resize(SIZE, SIZE, { kernel: sharp.kernel.nearest, fit: 'fill' })
+    .png()
+    .toBuffer();
 
-  // Build composite array for all other layers
-  const composites = [];
-  
-  for (const layer of LAYERS.slice(1)) { // Skip background as it's the base
-    composites.push({
-      input: selectedTraits[layer]
-    });
-  }
+  const composites = await Promise.all(
+    LAYERS.slice(1).map(async layer => ({
+      input: await sharp(selectedTraits[layer])
+        .resize(SIZE, SIZE, { kernel: sharp.kernel.nearest, fit: 'fill' })
+        .png()
+        .toBuffer()
+    }))
+  );
 
-  // Composite all layers
-  image = image.composite(composites);
-
-  // Save the final image
-  const buffer = await image.png({ compressionLevel: 9 }).toBuffer();
+  const buffer = await sharp(backgroundBuffer)
+    .composite(composites)
+    .png({ compressionLevel: 9 })
+    .toBuffer();
   writeFileSync(outputPath, buffer);
 }
 
@@ -135,39 +99,53 @@ async function generateNFTs() {
     const allTraits = loadAllTraits();
     console.log();
 
-    // Generate NFTs
-    const metadata = [];
-    
-    for (let i = 0; i < COUNT; i++) {
-      const tokenId = i + 1;
-      
-      // Randomly select one trait from each layer
-      const selectedTraits = {};
-      for (const layer of LAYERS) {
-        selectedTraits[layer] = getRandomItem(allTraits[layer]);
-      }
-
-      // Generate the NFT image
-      const outputPath = join(OUTPUT_DIR, `${tokenId}.png`);
-      await compositeNFT(selectedTraits, outputPath);
-
-      // Generate metadata
-      const nftMetadata = generateMetadata(tokenId, selectedTraits);
-      metadata.push(nftMetadata);
-
-      // Save individual metadata file
-      const metadataPath = join(OUTPUT_DIR, `${tokenId}.json`);
-      writeFileSync(metadataPath, JSON.stringify(nftMetadata, null, 2));
-
-      console.log(`✓ Generated NFT #${tokenId}`);
+    const backgroundToUse = allTraits.backgrounds[0];
+    if (!backgroundToUse) {
+      throw new Error('No background available to generate combinations');
     }
 
-    // Save collection metadata
-    const collectionMetadataPath = join(OUTPUT_DIR, '_metadata.json');
-    writeFileSync(collectionMetadataPath, JSON.stringify(metadata, null, 2));
+    const totalCombinations =
+      allTraits.glasses.length *
+      allTraits.heads.length *
+      allTraits.bodies.length *
+      allTraits.accessories.length;
 
-    console.log(`\n✨ Done! Generated ${COUNT} NFTs in ${OUTPUT_DIR}`);
-    console.log(`📝 Collection metadata saved to _metadata.json`);
+    console.log(`📊 Total combinations (single background): ${totalCombinations}`);
+    console.log(`🎯 Background in use: ${backgroundToUse.split(/[\\/]/).pop()}\n`);
+
+    let generatedCount = 0;
+
+    generationLoop:
+    for (const [glassesIndex, glassesPath] of allTraits.glasses.entries()) {
+      console.log(`👓 Glasses ${glassesIndex + 1}/${allTraits.glasses.length}: ${basename(glassesPath)}`);
+      for (const [headIndex, headPath] of allTraits.heads.entries()) {
+        console.log(`  🧠 Head ${headIndex + 1}/${allTraits.heads.length}: ${basename(headPath)}`);
+        for (const bodyPath of allTraits.bodies) {
+          for (const accessoryPath of allTraits.accessories) {
+            const tokenId = generatedCount + 1;
+            const selectedTraits = {
+              backgrounds: backgroundToUse,
+              bodies: bodyPath,
+              accessories: accessoryPath,
+              heads: headPath,
+              glasses: glassesPath
+            };
+
+            const outputPath = join(OUTPUT_DIR, `${tokenId}.png`);
+            await compositeNFT(selectedTraits, outputPath);
+            console.log(`✓ Generated NFT #${tokenId}`);
+
+            generatedCount += 1;
+            if (Number.isInteger(LIMIT) && generatedCount >= LIMIT) {
+              break generationLoop;
+            }
+          }
+        }
+      }
+    }
+
+    console.log(`\n✨ Done! Generated ${generatedCount} NFTs in ${OUTPUT_DIR}`);
+    console.log(`📄 Metadata files skipped as requested`);
 
   } catch (err) {
     console.error(`\n❌ Error: ${err.message}`);
@@ -177,4 +155,3 @@ async function generateNFTs() {
 
 // Run the generator
 generateNFTs();
-
